@@ -1,0 +1,539 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  GO_VERSION: '1.22'
+
+jobs:
+  # Lint job
+  lint:
+    name: Lint & Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Check formatting
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "::error::Code is not formatted. Run 'gofmt -w .'"
+            gofmt -d .
+            exit 1
+          fi
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          args: --timeout=5m
+
+  # Unit tests with coverage
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run unit tests with coverage
+        run: |
+          go test -v -race -short \
+            -coverprofile=coverage-unit.out \
+            -covermode=atomic \
+            -json \
+            ./pkg/merkle/... \
+            ./pkg/storage/... \
+            ./pkg/katana/... 2>&1 | tee test-unit.json
+
+      - name: Generate coverage report
+        run: |
+          go tool cover -func=coverage-unit.out | tee coverage-unit.txt
+          go tool cover -html=coverage-unit.out -o coverage-unit.html
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-unit
+          path: |
+            coverage-unit.out
+            coverage-unit.txt
+            coverage-unit.html
+            test-unit.json
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage-unit.out
+          flags: unit
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  # Circuit tests
+  circuit-test:
+    name: Circuit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run circuit tests with coverage
+        run: |
+          go test -v -race -short \
+            -coverprofile=coverage-circuit.out \
+            -covermode=atomic \
+            -json \
+            ./pkg/circuit/... 2>&1 | tee test-circuit.json
+
+      - name: Generate coverage report
+        run: go tool cover -func=coverage-circuit.out | tee coverage-circuit.txt
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-circuit
+          path: |
+            coverage-circuit.out
+            coverage-circuit.txt
+            test-circuit.json
+
+  # Prover tests
+  prover-test:
+    name: Prover Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run prover tests with coverage
+        run: |
+          go test -v -race -short \
+            -coverprofile=coverage-prover.out \
+            -covermode=atomic \
+            -json \
+            ./pkg/prover/... 2>&1 | tee test-prover.json
+
+      - name: Generate coverage report
+        run: go tool cover -func=coverage-prover.out | tee coverage-prover.txt
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-prover
+          path: |
+            coverage-prover.out
+            coverage-prover.txt
+            test-prover.json
+
+  # Full integration tests (non-short mode)
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run full prover integration tests
+        run: |
+          go test -v -race \
+            -coverprofile=coverage-integration.out \
+            -covermode=atomic \
+            -json \
+            -run "TestProver_ProveAndVerify|TestNewProver" \
+            ./pkg/prover/... 2>&1 | tee test-integration.json
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-integration
+          path: |
+            coverage-integration.out
+            test-integration.json
+
+  # E2E tests with demo application
+  e2e:
+    name: E2E Demo Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run demo application
+        env:
+          LEVELDB_PATH: ./data/test.db
+        run: |
+          go run ./cmd/demo 2>&1 | tee demo-output.txt
+
+      - name: Verify demo success
+        run: |
+          if grep -q "Sub-2-second round-trip achieved" demo-output.txt; then
+            echo "✅ Demo completed successfully with sub-2-second performance!"
+          else
+            echo "❌ Demo did not achieve performance target"
+            exit 1
+          fi
+
+      - name: Upload demo output
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-output
+          path: demo-output.txt
+
+  # Build verification
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goos: [linux, darwin]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Build binaries
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p bin
+          go build -ldflags="-s -w" -o bin/demo-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/demo
+          go build -ldflags="-s -w" -o bin/benchmark-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/benchmark
+
+      - name: Upload binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: bin/
+
+  # Cairo contracts build
+  contracts:
+    name: Cairo Contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Scarb
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | sh -s -- -v 2.8.0
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Build contracts
+        working-directory: ./contracts
+        run: scarb build
+
+      - name: Upload contract artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-artifacts
+          path: contracts/target/dev/
+
+  # Performance benchmark
+  benchmark:
+    name: Performance Benchmark
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Run Go benchmarks
+        run: |
+          go test -bench=. -benchmem -count=3 ./pkg/merkle/... | tee merkle-bench.txt
+          go test -bench=. -benchmem -short -count=3 ./pkg/prover/... | tee prover-bench.txt
+
+      - name: Run application benchmark
+        run: |
+          go run ./cmd/benchmark 2>&1 | tee benchmark-output.txt
+
+      - name: Parse benchmark results
+        id: bench
+        run: |
+          # Extract key metrics
+          ROUND_TRIP=$(grep "Total Round-trip" benchmark-output.txt | grep -oE '[0-9]+\.[0-9]+ms' | head -1 || echo "N/A")
+          PROOF_GEN=$(grep "Generate proof" benchmark-output.txt | grep -oE '[0-9]+\.[0-9]+ms' | head -1 || echo "N/A")
+          VERIFY=$(grep "Verify proof" benchmark-output.txt | grep -oE '[0-9]+\.[0-9]+ms' | head -1 || echo "N/A")
+
+          echo "round_trip=$ROUND_TRIP" >> $GITHUB_OUTPUT
+          echo "proof_gen=$PROOF_GEN" >> $GITHUB_OUTPUT
+          echo "verify=$VERIFY" >> $GITHUB_OUTPUT
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            merkle-bench.txt
+            prover-bench.txt
+            benchmark-output.txt
+
+  # Docker build
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [test, build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t zkp-demo -f docker/Dockerfile .
+
+      - name: Test Docker image
+        run: |
+          docker run --rm zkp-demo /app/benchmark 2>&1 | tee docker-benchmark.txt || true
+
+      - name: Upload Docker test output
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-output
+          path: docker-benchmark.txt
+
+  # Generate comprehensive test summary
+  test-summary:
+    name: Test & Coverage Summary
+    runs-on: ubuntu-latest
+    needs: [test, circuit-test, prover-test, integration-test, e2e, benchmark]
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Merge coverage files
+        run: |
+          # Install gocovmerge
+          go install github.com/wadey/gocovmerge@latest
+
+          # Find and merge all coverage files
+          find artifacts -name "coverage-*.out" -type f | head -20 > coverage-files.txt
+          if [ -s coverage-files.txt ]; then
+            gocovmerge $(cat coverage-files.txt | tr '\n' ' ') > coverage-merged.out 2>/dev/null || true
+          fi
+
+      - name: Calculate total coverage
+        id: coverage
+        run: |
+          if [ -f coverage-merged.out ]; then
+            TOTAL=$(go tool cover -func=coverage-merged.out | grep total | awk '{print $3}' || echo "0%")
+          else
+            TOTAL="N/A"
+          fi
+          echo "total=$TOTAL" >> $GITHUB_OUTPUT
+          echo "Total coverage: $TOTAL"
+
+      - name: Count test results
+        id: tests
+        run: |
+          PASSED=0
+          FAILED=0
+          SKIPPED=0
+
+          for f in artifacts/*/test-*.json; do
+            if [ -f "$f" ]; then
+              P=$(grep -c '"Action":"pass"' "$f" 2>/dev/null || echo 0)
+              F=$(grep -c '"Action":"fail"' "$f" 2>/dev/null || echo 0)
+              S=$(grep -c '"Action":"skip"' "$f" 2>/dev/null || echo 0)
+              PASSED=$((PASSED + P))
+              FAILED=$((FAILED + F))
+              SKIPPED=$((SKIPPED + S))
+            fi
+          done
+
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          echo "skipped=$SKIPPED" >> $GITHUB_OUTPUT
+
+      - name: Generate summary report
+        run: |
+          cat << 'EOF' > summary.md
+          # 📊 ZK-SNARK Test & Coverage Report
+
+          ## Test Results Overview
+
+          | Metric | Value |
+          |--------|-------|
+          | ✅ Passed | ${{ steps.tests.outputs.passed }} |
+          | ❌ Failed | ${{ steps.tests.outputs.failed }} |
+          | ⏭️ Skipped | ${{ steps.tests.outputs.skipped }} |
+          | 📈 Coverage | ${{ steps.coverage.outputs.total }} |
+
+          ## Package Coverage Breakdown
+
+          EOF
+
+          # Add individual package coverage
+          for f in artifacts/coverage-*/coverage-*.txt; do
+            if [ -f "$f" ]; then
+              PACKAGE=$(basename "$f" .txt | sed 's/coverage-//')
+              echo "### $PACKAGE" >> summary.md
+              echo '```' >> summary.md
+              tail -20 "$f" >> summary.md
+              echo '```' >> summary.md
+              echo "" >> summary.md
+            fi
+          done
+
+          # Add benchmark results if available
+          if [ -f artifacts/benchmark-results/benchmark-output.txt ]; then
+            echo "## ⚡ Performance Benchmark" >> summary.md
+            echo '```' >> summary.md
+            grep -A 20 "BENCHMARK SUMMARY" artifacts/benchmark-results/benchmark-output.txt >> summary.md || true
+            echo '```' >> summary.md
+          fi
+
+          # Add demo output if available
+          if [ -f artifacts/demo-output/demo-output.txt ]; then
+            echo "## 🚀 Demo Execution" >> summary.md
+            echo '```' >> summary.md
+            grep -A 10 "SUMMARY" artifacts/demo-output/demo-output.txt >> summary.md || true
+            echo '```' >> summary.md
+          fi
+
+          cat summary.md
+
+      - name: Write job summary
+        run: cat summary.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Post PR comment with results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('summary.md', 'utf8');
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('ZK-SNARK Test & Coverage Report')
+            );
+
+            const body = summary + '\n\n---\n*Updated: ' + new Date().toISOString() + '*';
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body
+              });
+            }
+
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-summary
+          path: |
+            summary.md
+            coverage-merged.out
+
+  # Final status check
+  all-checks:
+    name: All Checks Passed
+    runs-on: ubuntu-latest
+    needs: [lint, test, circuit-test, prover-test, e2e, build, contracts, docker, test-summary]
+    if: always()
+    steps:
+      - name: Check all jobs
+        run: |
+          if [ "${{ needs.lint.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ] || \
+             [ "${{ needs.circuit-test.result }}" != "success" ] || \
+             [ "${{ needs.prover-test.result }}" != "success" ] || \
+             [ "${{ needs.e2e.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ] || \
+             [ "${{ needs.contracts.result }}" != "success" ]; then
+            echo "❌ Some required checks failed"
+            exit 1
+          fi
+          echo "✅ All CI checks passed successfully!"

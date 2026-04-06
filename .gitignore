@@ -1,0 +1,48 @@
+# Binaries
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of go coverage tool
+coverage.out
+coverage.html
+
+# Go workspace file
+go.work
+
+# Data directories
+data/
+*.db
+katana-db/
+zk-state/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go vendor (if used)
+vendor/
+
+# Build artifacts
+target/
+
+# Cairo artifacts
+contracts/target/
+
+# Temporary files
+tmp/
+*.tmp
+*.log
