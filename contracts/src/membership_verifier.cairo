@@ -3,7 +3,6 @@
 // Wraps the Groth16 verifier to provide membership proof verification
 // for Merkle tree membership proofs.
 
-use starknet::ContractAddress;
 use super::groth16_verifier::{Groth16Proof, G1Point};
 
 /// Interface for membership verifier
@@ -33,8 +32,8 @@ pub trait IMembershipVerifier<TContractState> {
 
 #[starknet::contract]
 pub mod MembershipVerifier {
-    use super::{IMembershipVerifier, Groth16Proof, G1Point};
-    use starknet::{ContractAddress, get_caller_address, get_block_timestamp};
+    use super::{IMembershipVerifier, Groth16Proof};
+    use starknet::{get_caller_address, get_block_timestamp};
     use starknet::storage::{
         StoragePointerReadAccess, StoragePointerWriteAccess,
         Map, StoragePathEntry
@@ -45,8 +44,8 @@ pub mod MembershipVerifier {
 
     #[storage]
     struct Storage {
-        owner: ContractAddress,
-        groth16_verifier: ContractAddress,
+        owner: starknet::ContractAddress,
+        groth16_verifier: starknet::ContractAddress,
         // Current Merkle root
         current_root: u256,
         // Root history for accepting slightly old roots
@@ -71,7 +70,7 @@ pub mod MembershipVerifier {
     #[derive(Drop, starknet::Event)]
     pub struct MembershipVerified {
         #[key]
-        pub verifier: ContractAddress,
+        pub verifier: starknet::ContractAddress,
         pub merkle_root: u256,
         pub leaf_hash: u256,
         pub timestamp: u64,
@@ -80,7 +79,7 @@ pub mod MembershipVerifier {
     #[derive(Drop, starknet::Event)]
     pub struct MerkleRootUpdated {
         #[key]
-        pub updater: ContractAddress,
+        pub updater: starknet::ContractAddress,
         pub old_root: u256,
         pub new_root: u256,
     }
@@ -89,14 +88,14 @@ pub mod MembershipVerifier {
     pub struct NullifierUsed {
         #[key]
         pub nullifier: u256,
-        pub user: ContractAddress,
+        pub user: starknet::ContractAddress,
     }
 
     #[constructor]
     fn constructor(
         ref self: ContractState,
-        owner: ContractAddress,
-        groth16_verifier: ContractAddress,
+        owner: starknet::ContractAddress,
+        groth16_verifier: starknet::ContractAddress,
         initial_root: u256,
         tree_depth: u32
     ) {
@@ -132,16 +131,13 @@ pub mod MembershipVerifier {
             public_inputs.append(merkle_root);
             public_inputs.append(leaf_hash);
 
-            // Call Groth16 verifier
-            let groth16_address = self.groth16_verifier.read();
-
             // For demo purposes, perform basic validation
             // In production, would call the Groth16 verifier contract
-            let is_valid = self.validate_proof_structure(@proof);
+            let is_valid = validate_proof_structure(@proof);
 
             if is_valid {
                 // Note: In a real implementation, we would call the Groth16 verifier
-                // let groth16 = IGorth16VerifierDispatcher { contract_address: groth16_address };
+                // let groth16 = IGorth16VerifierDispatcher { contract_address: self.groth16_verifier.read() };
                 // let is_valid = groth16.verify_proof(proof, public_inputs);
                 true
             } else {
@@ -181,75 +177,72 @@ pub mod MembershipVerifier {
         }
     }
 
-    #[generate_trait]
-    impl InternalImpl of InternalTrait {
-        /// Update the Merkle root (only owner)
-        fn update_merkle_root(ref self: ContractState, new_root: u256) {
-            assert(get_caller_address() == self.owner.read(), 'Only owner');
+    /// Update the Merkle root (only owner)
+    fn update_merkle_root(ref self: ContractState, new_root: u256) {
+        assert(get_caller_address() == self.owner.read(), 'Only owner');
 
-            let old_root = self.current_root.read();
+        let old_root = self.current_root.read();
 
-            // Update current root
-            self.current_root.write(new_root);
+        // Update current root
+        self.current_root.write(new_root);
 
-            // Add to history
-            let index = self.root_history_index.read();
-            let next_index = (index + 1) % ROOT_HISTORY_SIZE;
-            self.root_history.entry(next_index).write(new_root);
-            self.root_history_index.write(next_index);
+        // Add to history
+        let index = self.root_history_index.read();
+        let next_index = (index + 1) % ROOT_HISTORY_SIZE;
+        self.root_history.entry(next_index).write(new_root);
+        self.root_history_index.write(next_index);
 
-            self.emit(MerkleRootUpdated {
-                updater: get_caller_address(),
-                old_root,
-                new_root,
-            });
-        }
+        self.emit(MerkleRootUpdated {
+            updater: get_caller_address(),
+            old_root,
+            new_root,
+        });
+    }
 
-        /// Mark a nullifier as used
-        fn use_nullifier(ref self: ContractState, nullifier: u256) {
-            assert(!self.nullifiers.entry(nullifier).read(), 'Nullifier already used');
+    /// Mark a nullifier as used
+    fn use_nullifier(ref self: ContractState, nullifier: u256) {
+        assert(!self.nullifiers.entry(nullifier).read(), 'Nullifier already used');
 
-            self.nullifiers.entry(nullifier).write(true);
+        self.nullifiers.entry(nullifier).write(true);
 
-            self.emit(NullifierUsed {
-                nullifier,
-                user: get_caller_address(),
-            });
-        }
+        self.emit(NullifierUsed {
+            nullifier,
+            user: get_caller_address(),
+        });
+    }
 
-        /// Record a successful verification
-        fn record_verification(
-            ref self: ContractState,
-            merkle_root: u256,
-            leaf_hash: u256
-        ) {
-            let count = self.verification_count.read();
-            self.verification_count.write(count + 1);
+    /// Record a successful verification
+    fn record_verification(
+        ref self: ContractState,
+        merkle_root: u256,
+        leaf_hash: u256
+    ) {
+        let count = self.verification_count.read();
+        self.verification_count.write(count + 1);
 
-            self.emit(MembershipVerified {
-                verifier: get_caller_address(),
-                merkle_root,
-                leaf_hash,
-                timestamp: get_block_timestamp(),
-            });
-        }
+        self.emit(MembershipVerified {
+            verifier: get_caller_address(),
+            merkle_root,
+            leaf_hash,
+            timestamp: get_block_timestamp(),
+        });
+    }
 
-        /// Validate proof structure (basic checks)
-        fn validate_proof_structure(self: @ContractState, proof: @Groth16Proof) -> bool {
-            // Check that proof points are not zero (basic sanity check)
-            let a = proof.a;
-            let c = proof.c;
+    /// Validate proof structure (basic checks)
+    fn validate_proof_structure(proof: @Groth16Proof) -> bool {
+        // Check that proof points are not zero (basic sanity check)
+        let a = proof.a;
+        let c = proof.c;
 
-            // Points shouldn't all be zero
-            let a_valid = *a.x != 0 || *a.y != 0;
-            let c_valid = *c.x != 0 || *c.y != 0;
+        // Points shouldn't all be zero
+        let a_valid = *a.x != 0 || *a.y != 0;
+        let c_valid = *c.x != 0 || *c.y != 0;
 
-            a_valid && c_valid
-        }
+        a_valid && c_valid
+    }
 
-        /// Get tree depth
-        fn get_tree_depth(self: @ContractState) -> u32 {
-            self.tree_depth.read()
-        }
+    /// Get tree depth
+    fn get_tree_depth(self: @ContractState) -> u32 {
+        self.tree_depth.read()
     }
 }

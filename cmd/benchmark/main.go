@@ -89,7 +89,7 @@ func benchmarkMerkle(depth int) []BenchmarkResult {
 	start := time.Now()
 	tree := merkle.NewMerkleTree(depth)
 	for i := 0; i < 100; i++ {
-		tree.InsertSecret([]byte(fmt.Sprintf("secret_%d", i)))
+		_, _, _ = tree.InsertSecret([]byte(fmt.Sprintf("secret_%d", i)))
 	}
 	insertTime := time.Since(start)
 	results = append(results, BenchmarkResult{
@@ -102,7 +102,7 @@ func benchmarkMerkle(depth int) []BenchmarkResult {
 	// Root computation
 	start = time.Now()
 	for i := 0; i < 100; i++ {
-		tree.GetRoot()
+		_ = tree.GetRoot()
 	}
 	rootTime := time.Since(start) / 100
 	results = append(results, BenchmarkResult{
@@ -115,7 +115,7 @@ func benchmarkMerkle(depth int) []BenchmarkResult {
 	// Proof generation
 	start = time.Now()
 	for i := 0; i < 100; i++ {
-		tree.GetProof(i % tree.Size())
+		_, _ = tree.GetProof(i % tree.Size())
 	}
 	proofTime := time.Since(start) / 100
 	results = append(results, BenchmarkResult{
@@ -131,8 +131,7 @@ func benchmarkMerkle(depth int) []BenchmarkResult {
 func benchmarkSetup(depth int) (BenchmarkResult, *prover.Prover) {
 	// Warmup
 	for i := 0; i < WarmupRuns; i++ {
-		p, _ := prover.NewProver(depth)
-		_ = p
+		_, _ = prover.NewProver(depth)
 	}
 
 	start := time.Now()
@@ -178,7 +177,7 @@ func benchmarkProve(zkProver *prover.Prover, depth int) []BenchmarkResult {
 
 	// Warmup
 	for i := 0; i < WarmupRuns; i++ {
-		zkProver.Prove(witness)
+		_, _ = zkProver.Prove(witness)
 	}
 
 	// Benchmark
@@ -239,7 +238,7 @@ func benchmarkVerify(zkProver *prover.Prover, depth int) []BenchmarkResult {
 
 	// Warmup
 	for i := 0; i < WarmupRuns; i++ {
-		zkProver.Verify(proofResult.ProofBytes, proofResult.PublicInputs)
+		_, _ = zkProver.Verify(proofResult.ProofBytes, proofResult.PublicInputs)
 	}
 
 	// Benchmark
@@ -287,7 +286,7 @@ func benchmarkStorage() []BenchmarkResult {
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
 		value := []byte(hex.EncodeToString(make([]byte, 256)))
-		store.Put(key, value)
+		_ = store.Put(key, value)
 	}
 	writeTime := time.Since(start)
 	avgWrite := writeTime / 1000
@@ -303,7 +302,7 @@ func benchmarkStorage() []BenchmarkResult {
 	start = time.Now()
 	for i := 0; i < 1000; i++ {
 		key := []byte(fmt.Sprintf("key_%d", i))
-		store.Get(key)
+		_, _ = store.Get(key)
 	}
 	readTime := time.Since(start)
 	avgRead := readTime / 1000
@@ -324,7 +323,7 @@ func benchmarkStorage() []BenchmarkResult {
 			Value: []byte(hex.EncodeToString(make([]byte, 256))),
 		}
 	}
-	store.BatchWrite(ops)
+	_ = store.BatchWrite(ops)
 	batchTime := time.Since(start)
 
 	results = append(results, BenchmarkResult{

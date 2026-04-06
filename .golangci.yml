@@ -10,15 +10,14 @@ linters:
     - ineffassign
     - staticcheck
     - unused
-  disable:
-    - structcheck  # Deprecated
-    - deadcode     # Deprecated
-    - varcheck     # Deprecated
 
 linters-settings:
   errcheck:
     check-type-assertions: false
     check-blank: false
+    exclude-functions:
+      - fmt.Printf
+      - fmt.Println
   govet:
     enable-all: false
   staticcheck:
@@ -39,5 +38,12 @@ issues:
       linters:
         - govet
       text: "shadow"
+    # Ignore errcheck in benchmark and demo (intentional for readability)
+    - path: cmd/benchmark/main\.go
+      linters:
+        - errcheck
+    - path: cmd/demo/main\.go
+      linters:
+        - errcheck
   max-issues-per-linter: 50
   max-same-issues: 10
