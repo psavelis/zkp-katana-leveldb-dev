@@ -378,14 +378,17 @@ jobs:
 
       - name: Merge coverage files
         run: |
-          # Install gocovmerge
-          go install github.com/wadey/gocovmerge@latest
-
-          # Find and merge all coverage files
-          find artifacts -name "coverage-*.out" -type f | head -20 > coverage-files.txt
-          if [ -s coverage-files.txt ]; then
-            gocovmerge $(cat coverage-files.txt | tr '\n' ' ') > coverage-merged.out 2>/dev/null || true
-          fi
+          # Simple coverage merge without external tools
+          # Concatenate all coverage files (skip the mode line for subsequent files)
+          FIRST=1
+          for f in $(find artifacts -name "coverage-*.out" -type f 2>/dev/null); do
+            if [ $FIRST -eq 1 ]; then
+              cat "$f" > coverage-merged.out
+              FIRST=0
+            else
+              tail -n +2 "$f" >> coverage-merged.out
+            fi
+          done || true
 
       - name: Calculate total coverage
         id: coverage
