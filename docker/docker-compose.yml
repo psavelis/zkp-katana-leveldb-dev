@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # Katana - Local Starknet Sequencer
+  katana:
+    image: ghcr.io/dojoengine/katana:latest
+    ports:
+      - "5050:5050"
+    command: ["--dev", "--dev.no-fee", "--host", "0.0.0.0"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5050"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - zkp-network
+
+  # ZKP Demo Application
+  zkp-demo:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    depends_on:
+      katana:
+        condition: service_healthy
+    environment:
+      - KATANA_RPC_URL=http://katana:5050
+      - LEVELDB_PATH=/app/data/proofs.db
+    volumes:
+      - zkp-data:/app/data
+    networks:
+      - zkp-network
+    command: ["/app/demo"]
+
+  # ZKP Benchmark
+  zkp-benchmark:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      - LEVELDB_PATH=/app/data/benchmark.db
+    volumes:
+      - zkp-benchmark-data:/app/data
+    networks:
+      - zkp-network
+    entrypoint: ["/app/benchmark"]
+
+  # Test Runner
+  zkp-test:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.test
+    depends_on:
+      katana:
+        condition: service_healthy
+    environment:
+      - KATANA_RPC_URL=http://katana:5050
+      - LEVELDB_PATH=/app/data/test.db
+    volumes:
+      - zkp-test-data:/app/data
+    networks:
+      - zkp-network
+
+networks:
+  zkp-network:
+    driver: bridge
+
+volumes:
+  zkp-data:
+  zkp-benchmark-data:
+  zkp-test-data:
