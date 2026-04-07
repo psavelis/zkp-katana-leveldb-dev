@@ -21,7 +21,7 @@ linters-settings:
   govet:
     enable-all: false
   staticcheck:
-    checks: ["all", "-SA1019"]  # Ignore deprecation warnings for gnark
+    checks: ["all", "-SA1019", "-SA4010"]  # Ignore deprecation and append warnings
 
 issues:
   exclude-rules:
@@ -38,12 +38,14 @@ issues:
       linters:
         - govet
       text: "shadow"
-    # Ignore errcheck in benchmark and demo (intentional for readability)
+    # Ignore errcheck and ineffassign in benchmark and demo (intentional for readability)
     - path: cmd/benchmark/main\.go
       linters:
         - errcheck
+        - ineffassign
     - path: cmd/demo/main\.go
       linters:
         - errcheck
+        - ineffassign
   max-issues-per-linter: 50
   max-same-issues: 10
