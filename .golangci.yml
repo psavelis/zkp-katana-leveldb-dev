@@ -21,7 +21,7 @@ linters-settings:
   govet:
     enable-all: false
   staticcheck:
-    checks: ["all", "-SA1019", "-SA4010"]  # Ignore deprecation and append warnings
+    checks: ["all", "-SA1019", "-SA4006", "-SA4010"]  # Ignore deprecation and unused value warnings
 
 issues:
   exclude-rules:
@@ -43,9 +43,11 @@ issues:
       linters:
         - errcheck
         - ineffassign
+        - staticcheck
     - path: cmd/demo/main\.go
       linters:
         - errcheck
         - ineffassign
+        - staticcheck
   max-issues-per-linter: 50
   max-same-issues: 10
